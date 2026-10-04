@@ -57,9 +57,19 @@ printf 'Host: %s\n' "$host"
 printf 'Resolved address: %s\n' "${addr:-unresolved}"
 
 # Basic connectivity check. Guarded so a missing/odd ping never aborts us.
+# If ping is unavailable or fails, fall back to a short TCP probe so hosts that
+# are actually reachable are not reported as down on systems without ping.
 reachable=1
-if ping -c 1 -W 1 "$host" >/dev/null 2>&1; then
+if command -v ping >/dev/null 2>&1 && ping -c 1 -W 1 "$host" >/dev/null 2>&1; then
     reachable=0
+else
+    for probe_port in "${port:-}" 80 443 22; do
+        [[ -z "$probe_port" ]] && continue
+        if timeout 2 bash -c ">/dev/tcp/$host/$probe_port" 2>/dev/null; then
+            reachable=0
+            break
+        fi
+    done
 fi
 printf 'Connectivity: %s\n' "$([[ $reachable -eq 0 ]] && echo reachable || echo unreachable)"
 
